@@ -4,7 +4,7 @@ RED = 1
 START_SIDE = BLUE
 
 import numpy as np
-
+import random
 
 class Connect4:
     def __init__(self, to_move=START_SIDE, winner=None, pos=None):
@@ -20,6 +20,7 @@ class Connect4:
     def move(self, move):
 
         if not self.winner == None:
+            print(self)
             raise ValueError(f"Player {self.winner} has already won the game")
 
         if not self.is_legal(move):
@@ -94,6 +95,9 @@ class Connect4:
     def legal_moves_mask(self):
         last_row = (self.board[:, -1]) % 2
         return -1000 * last_row
+    def legal_moves_softmax(self):
+        last_row = (self.board[:, -1]) % 2
+        return 1 - last_row
 
     def __str__(self):
         # Unicode characters for the pieces and board
@@ -134,3 +138,16 @@ class Connect4:
 
     def copy(self):
         return Connect4(self.to_move, self.winner, self.board)
+
+    def initialize_random(self,num_moves = 10):
+
+        for i in range(num_moves + round(random.random())):
+            if self.winner != None:
+                break
+
+            #sample uniformly across legal moves
+            legal_moves = self.legal_moves()
+            permute = np.random.permutation(len(legal_moves))
+            selected_move = legal_moves[permute][0]
+            self.move(selected_move)
+        

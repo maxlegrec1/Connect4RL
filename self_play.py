@@ -3,11 +3,12 @@ import pickle
 import numpy as np
 import torch
 from tqdm import tqdm
-
+import time
 import wandb
 from connect4 import Connect4
 from model import connect_model
-
+from torch.utils.tensorboard import SummaryWriter
+writer = SummaryWriter()
 
 def hashable(array):
     arr = array.flatten()
@@ -30,11 +31,13 @@ def calculate_policy(board, num_rollouts, model, return_dicts=False):
 
 def update(Q, N, P, V, board, model, main_path=False):
     if hashable(board.board) not in Q:
-        pred = model(board.board)
-        P[hashable(board.board)] = pred["P"]
+        #pred = model(board.board)
+        #P[hashable(board.board)] = pred["P"]
+        P[hashable(board.board)] = softmax(np.random.randn(7))
         # print(type(pred["P"]))
         if board.winner is None:
-            V[hashable(board.board)] = pred["V"]
+            #V[hashable(board.board)] = pred["V"]
+            V[hashable(board.board)] = np.random.randn()
         else:
             V[hashable(board.board)] = -1
         Q[hashable(board.board)] = np.zeros(7)
@@ -86,6 +89,10 @@ def sample(policy):
     """
     return np.random.choice(len(policy), p=(policy))
 
+def softmax(x):
+    """Compute softmax values for each sets of scores in x."""
+    e_x = np.exp(x - np.max(x))
+    return e_x / e_x.sum(axis=0) # only difference
 
 def temp_softmax(policy):
     # Apply temperature
@@ -96,25 +103,60 @@ def temp_softmax(policy):
 def test():
     # model is initialized with random weights
     model = connect_model()
+    #model.load_state_dict(torch.load("model.pt"))
     # load_weights here
 
     num_steps = 10_000
 
     games_per_step = 100
 
-    num_rollouts_per_move = 100
+    num_rollouts_per_move = 1000
 
-    batch_size = 20
+    batch_size = 50
 
-    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
+    opt = torch.optim.Adam(model.parameters(), lr=5e-5)
     wandb.init(project="reinforcement")
 
-    for i in tqdm(range(num_steps)):
 
-        for j in tqdm(range(games_per_step)):
+    Xs = []
+    Pis = []
+    Vs = []
+    for j in tqdm(range(games_per_step)):
+        with open(f"ds_{j}.pkl", "rb") as inp:
+            result_step = pickle.load(inp)
+
+        for res in result_step:
+            Xs.append(res[0])
+            Pis.append(res[1])
+            Vs.append(res[2])
+
+    Xs = np.array(Xs)
+    Pis = np.array(Pis)
+    Vs = np.array(Vs)
+
+    # shuffle (X,P,V)
+    permutation = np.random.permutation(len(Xs))
+
+    Xs = Xs[permutation]
+    Pis = Pis[permutation]
+    Vs = Vs[permutation]
+
+    print(Xs.shape, Pis.shape, Vs.shape)
+    train(model, Xs, Pis, Vs, opt, batch_size,epochs=2)
+
+
+
+    for i in tqdm(range(num_steps)):
+        j = 0
+
+        while j<= games_per_step:
             result_step = []
             board = Connect4()
-            while True:
+            board.initialize_random()
+            if board.winner != None:
+                continue
+            j+=1
+            while True: 
                 with torch.no_grad():
                     improved_policy = calculate_policy(
                         board, num_rollouts_per_move, model
@@ -125,9 +167,9 @@ def test():
                     previous_board = board.copy()
                     board.move(sampled_move)
                     print(previous_board)
+                    result_step.append([previous_board.board, improved_policy, None])
                     if board.winner != None:
                         break
-                    result_step.append([previous_board.board, improved_policy, None])
             if board.winner == 0:
                 result_step[-1][2] = 0
             else:
@@ -166,7 +208,7 @@ def test():
         Vs = Vs[permutation]
 
         print(Xs.shape, Pis.shape, Vs.shape)
-        train(model, Xs, Pis, Vs, opt, batch_size)
+        train(model, Xs, Pis, Vs, opt, batch_size,epochs=2)
         # for (X,pi,v) in ds:
         # perform gradient descent on X, pi v
 
@@ -176,37 +218,45 @@ def test():
 def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1):
     steps = Ps.shape[0] // batch_size
 
-    model = model.to("cuda")
+    model = model.to("cuda:0")
     for epoch in range(epochs):
         for step in range(steps):
             X = (
                 torch.from_numpy(Xs[step * (batch_size) : (step + 1) * batch_size])
                 .to(torch.float32)
-                .to("cuda")
+                .to("cuda:0")
             )
             P = (
                 torch.from_numpy(Ps[step * (batch_size) : (step + 1) * batch_size])
                 .to(torch.float32)
-                .to("cuda")
+                .to("cuda:0")
             )
             V = (
                 torch.from_numpy(Vs[step * (batch_size) : (step + 1) * batch_size])
                 .to(torch.float32)
-                .to("cuda")
+                .to("cuda:0")
             )
             opt.zero_grad()
-            entropy, loss = model(X, targets=(P, V))
-
+            entropy, l1, l2, l3, acc1, acc2, acc3 = model(X, targets=(P, V))
+            loss = l1 + l2 + l3
             print(step, loss.item())
             wandb.log(
                 {
                     "loss": loss.item(),
+                    "l1": l1.item(),
+                    "l2": l2.item(),
+                    "l3": 0.1*l3.item(),
+                    "acc1" : acc1.item(),
+                    "acc2" : acc2.item(),
+                    "acc3" : acc3.item(),
                     "entropy": entropy.item(),
                     "target_entropy": torch.distributions.Categorical(probs=P)
                     .entropy()
                     .mean(),
                 }
             )
+            writer.add_scalar("Accuracy", acc1.item(), epoch*steps + step)
+            #time.sleep(0.2)
 
             loss.backward()
 

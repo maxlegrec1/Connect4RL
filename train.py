@@ -6,15 +6,15 @@ from tqdm import tqdm
 
 import wandb
 from connect4 import Connect4
-from model import connect_model
-from self_play import train
+from model3 import connect_model
+from self_play_par import train
 
-# wandb.init(project="reinforcement")
+wandb.init(project="reinforcement")
 model = connect_model()
-model.load_state_dict(torch.load("model.pt"))
-games_per_step = 100
-opt = torch.optim.Adam(model.parameters(), lr=1e-4)
-
+#model.load_state_dict(torch.load("model.pt"))
+games_per_step = 10000*16
+opt = torch.optim.Adam(model.parameters(), lr=5e-5)
+#scheduler = torch.optim.lr_scheduler.MultiStepLR(opt, milestones=[100,200,300], gamma=1.2,verbose = True)
 Xs = []
 Ps = []
 Vs = []
@@ -24,27 +24,20 @@ for j in tqdm(range(games_per_step)):
 
     for i, res in enumerate(result_step):
         Xs.append(res[0])
-        print(i, res[0])
+        #print(i, res[0])
         Ps.append(res[1])
         Vs.append(res[2])
-    break
+
 Xs = np.array(Xs, dtype=np.float32)
 Ps = np.array(Ps, dtype=np.float32)
 Vs = np.array(Vs, dtype=np.float32)
-b = Connect4(pos=Xs[-1])
-b.check_for_win()
-print(b.winner)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-print(Vs[-1], Xs[-1])
-exit()
+
 permutation = np.random.permutation(len(Xs))
 Xs = Xs[permutation]
 Ps = Ps[permutation]
 Vs = Vs[permutation]
 
-batch_size = 100
+batch_size = 200
+print(Xs.shape[0])
 
-
-train(model, Xs, Ps, Vs, opt, batch_size, epochs=10)
+train(model, Xs, Ps, Vs, opt, batch_size, epochs=3)

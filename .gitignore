@@ -1,0 +1,5 @@
+games/
+runs/
+wandb/
+*.pt
+__pycache__/

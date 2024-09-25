@@ -1,81 +1,53 @@
 import pickle
-
+import os
 import numpy as np
 import torch
 from tqdm import tqdm
 
 import wandb
 from connect4 import Connect4
-from model import connect_model
-from self_play import train
+from model3 import connect_model
+from self_play import train, calculate_policy,hashable
 
-# wandb.init(project="reinforcement")
+
 model = connect_model()
-model.load_state_dict(torch.load("model.pt"))
 
-b = Connect4()
-with torch.no_grad():
-    print(model(b.board))
-b.move(6)
+#parentmodel = Parentmodel(model)
+pytorch_total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(pytorch_total_params)
+'''
+wandb.init(project="SupervisedConnect4")
+batch_size = 200
+opt = torch.optim.Adam(model.parameters(), lr=5e-5)
+files = []
+for file in os.listdir():
+    if file.endswith('.pkl'):
+        files.append(file)
+#print(files)
 
-b.move(1)
-with torch.no_grad():
-    print(model(b.board))
+Xs = []
+Pis = []
+Vs = []
+for file  in tqdm(files):
+    with open(file, "rb") as inp:
+        result_step = pickle.load(inp)
 
-b.move(6)
-b.move(0)
-with torch.no_grad():
-    print(model(b.board))
+    for res in result_step:
+        Xs.append(res[0])
+        Pis.append(res[1])
+        Vs.append(res[2])
 
-b.move(6)
-b.move(6)
+Xs = np.array(Xs)
+Pis = np.array(Pis)
+Vs = np.array(Vs)
 
-print(b)
-with torch.no_grad():
-    print(model(b.board))
+# shuffle (X,P,V)
+permutation = np.random.permutation(len(Xs))    
 
-b.move(2)
-b.move(3)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
+Xs = Xs[permutation]
+Pis = Pis[permutation]
+Vs = Vs[permutation]
 
-b.move(2)
-b.move(2)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-
-b.move(2)
-b.move(3)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-b.move(3)
-b.move(4)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-
-b.move(3)
-b.move(4)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-
-b.move(3)
-b.move(3)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-
-b.move(5)
-b.move(4)
-print(b)
-with torch.no_grad():
-    print(model(b.board))
-b.move(5)
-
-print(b)
-with torch.no_grad():
-    print(model(b.board))
+print(Xs.shape, Pis.shape, Vs.shape)
+train(model, Xs, Pis, Vs, opt, batch_size,epochs=1)
+'''
