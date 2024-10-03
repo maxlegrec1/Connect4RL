@@ -1,5 +1,7 @@
 games/
 runs/
 wandb/
-*.pt
 __pycache__/
+*.pt
+*.onnx
+test_*.py

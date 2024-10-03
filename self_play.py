@@ -15,14 +15,18 @@ def hashable(array):
     return tuple(arr)
 
 
-def calculate_policy(board, num_rollouts, model, return_dicts=False):
+def calculate_policy(board, num_rollouts, model, return_dicts=False,mode = "N"):
     Q_dict = {}
     N_dict = {}
     P_dict = {}
     V_dict = {}
     for i in range(num_rollouts):
         update(Q_dict, N_dict, P_dict, V_dict, board, model, main_path=True)
-    policy = N_dict[hashable(board.board)] / np.sum(N_dict[hashable(board.board)])
+    if mode == "N":
+        policy = N_dict[hashable(board.board)] / np.sum(N_dict[hashable(board.board)])
+    if mode =="Q":
+        #policy = Q_dict[hashable(board.board)]
+        policy = softmax(50 * Q_dict[hashable(board.board)] +  board.legal_moves_mask() / 2 )
     if not return_dicts:
         return policy
     else:
@@ -31,13 +35,13 @@ def calculate_policy(board, num_rollouts, model, return_dicts=False):
 
 def update(Q, N, P, V, board, model, main_path=False):
     if hashable(board.board) not in Q:
-        #pred = model(board.board)
-        #P[hashable(board.board)] = pred["P"]
-        P[hashable(board.board)] = softmax(np.random.randn(7))
+        pred = model(board.board)
+        P[hashable(board.board)] = pred["P"]
+        #P[hashable(board.board)] = softmax(np.random.randn(7))
         # print(type(pred["P"]))
         if board.winner is None:
-            #V[hashable(board.board)] = pred["V"]
-            V[hashable(board.board)] = np.random.randn()
+            V[hashable(board.board)] = pred["V"]
+            #V[hashable(board.board)] = np.random.randn()
         else:
             V[hashable(board.board)] = -1
         Q[hashable(board.board)] = np.zeros(7)

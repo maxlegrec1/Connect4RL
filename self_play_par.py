@@ -7,9 +7,12 @@ from tqdm import tqdm
 import wandb
 from connect4 import Connect4
 from model3 import connect_model
+from torch_model_clean import connect_model as connect_model_onnx
 from battle import battle
 import ray
 import time
+import onnxruntime
+import random
 
 def hashable(array):
     arr = array.flatten()
@@ -23,33 +26,35 @@ def softmax(x):
 
 @ray.remote
 class Worker():
-    def __init__(self,model,worker_id):
-        self.model = model
+    def __init__(self,worker_id,step):
+        self.session = onnxruntime.InferenceSession("onnx_model.onnx", providers=['CPUExecutionProvider'])
         self.worker_id = worker_id
-
-    def calculate_policy(self,board, num_rollouts, model, return_dicts=False):
+        self.step = step
+    def calculate_policy(self,board, num_rollouts,worker_id = None, return_dicts=False):
         Q_dict = {}
         N_dict = {}
         P_dict = {}
         V_dict = {}
         for i in range(num_rollouts):
-            self.update(Q_dict, N_dict, P_dict, V_dict, board, model, main_path=True)
+            self.update(Q_dict, N_dict, P_dict, V_dict, board, main_path=True)
         policy = N_dict[hashable(board.board)] / np.sum(N_dict[hashable(board.board)])
+        if worker_id == 0:
+            print(Q_dict[hashable(board.board)])
+            print(N_dict[hashable(board.board)])
+        #policy = softmax(5 * Q_dict[hashable(board.board)] +  board.legal_moves_mask()  )
         if not return_dicts:
             return policy
         else:
             return policy, (Q_dict, N_dict, P_dict, V_dict)
 
 
-    def update(self,Q, N, P, V, board, model, main_path=False):
+    def update(self,Q, N, P, V, board, main_path=False):
         if hashable(board.board) not in Q:
-            pred = model(board.board)
-            P[hashable(board.board)] = pred["P"]
-            #P[hashable(board.board)] = softmax(np.random.randn(7))
-            # print(type(pred["P"]))
+            ort_inputs = {self.session.get_inputs()[0].name: board.board}
+            pred = self.session.run(None, ort_inputs)
+            P[hashable(board.board)] = pred[0]
             if board.winner is None:
-                V[hashable(board.board)] = pred["V"]
-                #V[hashable(board.board)] = np.random.randn()
+                V[hashable(board.board)] = pred[1]
             else:
                 V[hashable(board.board)] = -1
             Q[hashable(board.board)] = np.zeros(7)
@@ -78,7 +83,7 @@ class Worker():
                 print(U)
                 exit()
 
-            v = self.update(Q, N, P, V, s_prime, model)
+            v = self.update(Q, N, P, V, s_prime)
         else:
             v = -1
 
@@ -88,38 +93,38 @@ class Worker():
         ][a]
 
         return -v
-    
+    @torch.no_grad()
     def perform_games(self,num_games,num_workers):
         j = 0
         t_0 = time.time()
         num_moves = 0
-        num_rollouts_per_move = 1000
+        num_rollouts_per_move = 50
         while j<= num_games:
             result_step = []
             board = Connect4()
-            board.initialize_random()
+            if random.random()<=0.9:
+                board.initialize_random()
             if board.winner != None:
                 continue
             print(self.worker_id,j)
             j+=1
             while True: 
-                with torch.no_grad():
-                    improved_policy = self.calculate_policy(
-                        board, num_rollouts_per_move, self.model
-                    )
-                    improved_policy = temp_softmax(improved_policy)
-                    if(self.worker_id==0):
-                        print(improved_policy)
-                    sampled_move = sample(improved_policy)
-                    previous_board = board.copy()
-                    board.move(sampled_move)
-                    num_moves+=1
-                    if(self.worker_id==0):
-                        print(round((time.time()-t_0)/(num_workers*num_moves),2))
-                        print(previous_board)
-                    result_step.append([previous_board.board, improved_policy, None])
-                    if board.winner != None:
-                        break
+                improved_policy = self.calculate_policy(
+                    board, num_rollouts_per_move,self.worker_id
+                )
+                #improved_policy = temp_softmax(improved_policy)
+                if(self.worker_id==0):
+                    print(improved_policy)
+                sampled_move = sample(improved_policy)
+                previous_board = board.copy()
+                board.move(sampled_move)
+                num_moves+=1
+                if(self.worker_id==0):
+                    print(round((time.time()-t_0)/(num_workers*num_moves),2))
+                    print(previous_board)
+                result_step.append([previous_board.board, improved_policy, None])
+                if board.winner != None:
+                    break
             if board.winner == 0:
                 result_step[-1][2] = 0
             else:
@@ -130,7 +135,7 @@ class Worker():
 
             # concatenate result_step to result_dict                                        
             # save result_step as "ds_j.pkl"
-            with open(f"games/ds_{self.worker_id*num_games+(j-1)}.pkl", "wb") as outp:
+            with open(f"games/ds_{self.step}_{self.worker_id*num_games+(j-1)}.pkl", "wb") as outp:
                 pickle.dump(result_step, outp, pickle.HIGHEST_PROTOCOL)
 
 
@@ -163,51 +168,26 @@ def test():
 
     print(torch.cuda.is_available())
 
-    num_rollouts_per_move = 1000
 
     batch_size = 50
 
     num_workers = 16
-    games_per_step = 100*num_workers
+    games_per_step = 10000*num_workers
 
-    opt = torch.optim.Adam(model.parameters(), lr=5e-5)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-4)
     wandb.init(project="reinforcement")
 
     ray.init()
-
-    Xs = []
-    Pis = []
-    Vs = []
-    for j in tqdm(range(160000)):
-        with open(f"games/ds_{j}.pkl", "rb") as inp:
-            result_step = pickle.load(inp)
-
-        for res in result_step:
-            Xs.append(res[0])
-            Pis.append(res[1])
-            Vs.append(res[2])
-
-    Xs = np.array(Xs)
-    Pis = np.array(Pis)
-    Vs = np.array(Vs)
-
-    # shuffle (X,P,V)
-    permutation = np.random.permutation(len(Xs))
-
-    Xs = Xs[permutation]
-    Pis = Pis[permutation]
-    Vs = Vs[permutation]
-
-    print(Xs.shape, Pis.shape, Vs.shape)
-    train(model, Xs, Pis, Vs, opt, batch_size,epochs=1)
-
-
+    '''
+    torch.save(model.state_dict(), "model.pt")
+    onnx_model = connect_model_onnx()
+    onnx_model.load_state_dict(torch.load("model.pt"))
+    torch_input = torch.randn((7,7),dtype=torch.float32)
+    torch.onnx.export(onnx_model, torch_input,"onnx_model.onnx")'''
     for i in tqdm(range(num_steps)):
 
-        model_remote = connect_model()
-        model_remote.load_state_dict(torch.load("model.pt"))
         
-        workers = [Worker.remote(model_remote,k) for k in range(num_workers) ]
+        workers = [Worker.remote(k,i) for k in range(num_workers) ]
 
         work_ref = [worker.perform_games.remote(games_per_step//num_workers,num_workers) for worker in workers]
         #compute
@@ -218,14 +198,16 @@ def test():
         Xs = []
         Pis = []
         Vs = []
-        for j in tqdm(range(games_per_step)):
-            with open(f"games/ds_{j}.pkl", "rb") as inp:
-                result_step = pickle.load(inp)
+        Is = [i,i-1] if i > 0 else [i]
+        for k in Is:
+            for j in tqdm(range(games_per_step)):
+                with open(f"games/ds_{k}_{j}.pkl", "rb") as inp:
+                    result_step = pickle.load(inp)
 
-            for res in result_step:
-                Xs.append(res[0])
-                Pis.append(res[1])
-                Vs.append(res[2])
+                for res in result_step:
+                    Xs.append(res[0])
+                    Pis.append(res[1])
+                    Vs.append(res[2])
 
         Xs = np.array(Xs)
         Pis = np.array(Pis)
@@ -239,16 +221,21 @@ def test():
         Vs = Vs[permutation]
 
         print(Xs.shape, Pis.shape, Vs.shape)
-        train(model, Xs, Pis, Vs, opt, batch_size,epochs=1)
+        train(model, Xs, Pis, Vs, opt, batch_size,epochs=3)
 
         old_model = connect_model()
         old_model.load_state_dict(torch.load("old_model.pt"))
         with torch.no_grad():
-            battle(model,old_model)
-        # for (X,pi,v) in ds:
-        # perform gradient descent on X, pi v
+            w,d,l = battle(model,old_model)
+        wandb.log(
+            {
+                "win": w,
+                "draw": d,
+                "lose": l,
+            }
+        )
 
-        # perform backpropagation on the result_dict dataset
+
 
 
 def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1, scheduler = None):
@@ -273,7 +260,7 @@ def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1, scheduler = None):
                 .to("cuda")
             )
             opt.zero_grad()
-            entropy, l1, l2, l3, acc1, acc2, acc3 = model(X, targets=(P, V))
+            entropy, l1, l2, l3, acc1, acc2, acc3, lm = model(X, targets=(P, V))
             #loss = l1 + l2 + l3
             loss = l2 + l3 + l1
             print(step, loss.item())
@@ -287,6 +274,7 @@ def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1, scheduler = None):
                     "acc2" : acc2.item(),
                     "acc3" : acc3.item(),
                     "entropy": entropy.item(),
+                    "lm": lm.item(),
                     "target_entropy": torch.distributions.Categorical(probs=P)
                     .entropy()
                     .mean(),
@@ -302,7 +290,10 @@ def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1, scheduler = None):
     os.rename("model.pt","old_model.pt")
     torch.save(model.state_dict(), "model.pt")
     model = model.to("cpu")
-    print(torch.cuda.is_available())
+    onnx_model = connect_model_onnx()
+    onnx_model.load_state_dict(torch.load("model.pt"))
+    torch_input = torch.randn((7,7),dtype=torch.float32)
+    torch.onnx.export(onnx_model, torch_input,"onnx_model.onnx")
 
 
 if __name__ == "__main__":

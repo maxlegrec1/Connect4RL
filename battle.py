@@ -1,27 +1,30 @@
 import torch
+import numpy as np
 from tqdm import tqdm
 from model3 import connect_model
 from self_play import calculate_policy,sample,softmax
 from connect4 import Connect4
-def battle(model1,model2,num_games = 1_000):
+def battle(model1,model2,num_games = 5_000):
     model1_w = 0
     model1_d = 0
     model1_l = 0
 
     #model1 starts (model1 is blue)
-    for game in tqdm(range(num_games)//2):
+    for game in tqdm(range(num_games//2)):
         board = Connect4()
 
         while board.winner == None:
+            print(board)
             if board.to_move == 1:
-                pred = model1(board.board)
+                #pred = model1(board.board)
+                policy = calculate_policy(board,num_rollouts=100,model = model1,mode = "Q")
             else:
-                pred = model2(board.board)
-
-            policy = pred["P"]
-            policy_masked = softmax(policy + board.legal_moves_mask())
+                #pred = model2(board.board)  
+                policy = calculate_policy(board,num_rollouts=100,model = model2,mode = "N")  
+            #policy = pred["P"]
+            policy_masked = policy
+            #policy_masked = softmax(policy + board.legal_moves_mask())
             move = sample(policy_masked)
-            #print(board)
             board.move(move)
         if board.winner == 1:
             model1_w +=1
@@ -30,19 +33,21 @@ def battle(model1,model2,num_games = 1_000):
         else:
             model1_l +=1
     #model2 starts
-    for game in tqdm(range(num_games)//2):
+    for game in tqdm(range(num_games//2)):
         board = Connect4()
 
         while board.winner == None:
+            print(board)
             if board.to_move == 1:
-                pred = model2(board.board)
+                #pred = model2(board.board)
+                policy = calculate_policy(board,num_rollouts=100,model = model2,mode = "N")
             else:
-                pred = model1(board.board)
-
-            policy = pred["P"]
-            policy_masked = softmax(policy + board.legal_moves_mask())
+                #pred = model1(board.board)
+                policy = calculate_policy(board,num_rollouts=100,model = model1,mode = "Q")
+            #policy = pred["P"]
+            policy_masked = policy
+            #policy_masked = softmax(policy + board.legal_moves_mask())
             move = sample(policy_masked)
-            #print(board)
             board.move(move)
         if board.winner == -1:
             model1_w +=1
@@ -52,13 +57,12 @@ def battle(model1,model2,num_games = 1_000):
             model1_l +=1
 
     print(model1_w,model1_d,model1_l)
-    return 
+    return model1_w,model1_d,model1_l
     #model2 starts (model2 is blue)
 
-'''
 model1 = connect_model()
 model2 = connect_model()
-model2.load_state_dict(torch.load("model.pt"))
+model1.load_state_dict(torch.load("quite_good.pt"))
+model2.load_state_dict(torch.load("quite_good.pt"))
 with torch.no_grad():
-    battle(model1,model2)
-'''
+    battle(model1,model2,num_games = 500)

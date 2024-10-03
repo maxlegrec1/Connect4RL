@@ -11,7 +11,7 @@ class Connect4:
         self.to_move = to_move
         self.winner = winner
         if pos is None:
-            self.board = np.zeros((7, 7))
+            self.board = np.zeros((7, 7),dtype=np.float32)
         else:
             self.board = pos.copy()
 
@@ -139,8 +139,8 @@ class Connect4:
     def copy(self):
         return Connect4(self.to_move, self.winner, self.board)
 
-    def initialize_random(self,num_moves = 10):
-
+    def initialize_random(self):
+        num_moves = np.random.randint(4,11)
         for i in range(num_moves + round(random.random())):
             if self.winner != None:
                 break
