@@ -1,9 +1,11 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-from model3 import connect_model
+from model import connect_model
 from self_play import calculate_policy,sample,softmax
 from connect4 import Connect4
+
+
 def battle(model1,model2,num_games = 5_000):
     model1_w = 0
     model1_d = 0
@@ -60,9 +62,10 @@ def battle(model1,model2,num_games = 5_000):
     return model1_w,model1_d,model1_l
     #model2 starts (model2 is blue)
 
-model1 = connect_model()
-model2 = connect_model()
-model1.load_state_dict(torch.load("quite_good.pt"))
-model2.load_state_dict(torch.load("quite_good.pt"))
-with torch.no_grad():
-    battle(model1,model2,num_games = 500)
+if __name__ == '__main__':
+    model1 = connect_model()
+    model2 = connect_model()
+    model1.load_state_dict(torch.load("quite_good.pt"))
+    model2.load_state_dict(torch.load("quite_good.pt"))
+    with torch.no_grad():
+        battle(model1,model2,num_games = 500)
