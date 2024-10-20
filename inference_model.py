@@ -5,7 +5,7 @@ from torch.distributions import Categorical
 from torch.nn import TransformerEncoder, TransformerEncoderLayer
 
 import math
-
+import numpy as np
 def create_positional_encoding(max_len, d_model):
     pe = torch.zeros(max_len, d_model)
     position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
@@ -46,8 +46,8 @@ class SmallTransformerEncoder(nn.Module):
 
     def forward(self, src, targets=None, compute_mid = False):
 
-
-        #src = torch.from_numpy(src).to(torch.float32)
+        if isinstance(src,np.ndarray):
+            src = torch.from_numpy(src).to(torch.float32)
         side_tgt = src.view(-1,49)
         side_tgt = torch.sum(side_tgt,dim = 1).view(-1,1)
         side_tgt = -2*side_tgt -1
@@ -65,7 +65,7 @@ class SmallTransformerEncoder(nn.Module):
         V = torch.nn.functional.softmax(V, dim=-1)
         #print(V)
         V = V[:,2] - V[:,0] 
-        return P.view(7),V.view(-1)
+        return P.view(7).numpy(),V.view(-1).numpy()
 
         
 

@@ -6,8 +6,8 @@ from tqdm import tqdm
 
 import wandb
 from connect4 import Connect4
-from model3 import connect_model
-from torch_model_clean import connect_model as connect_model_onnx
+from model import connect_model
+from inference_model import connect_model as connect_model_onnx
 from battle import battle
 import ray
 import time
@@ -37,11 +37,11 @@ class Worker():
         V_dict = {}
         for i in range(num_rollouts):
             self.update(Q_dict, N_dict, P_dict, V_dict, board, main_path=True)
-        policy = N_dict[hashable(board.board)] / np.sum(N_dict[hashable(board.board)])
+        #policy = N_dict[hashable(board.board)] / np.sum(N_dict[hashable(board.board)])
         if worker_id == 0:
             print(Q_dict[hashable(board.board)])
             print(N_dict[hashable(board.board)])
-        #policy = softmax(5 * Q_dict[hashable(board.board)] +  board.legal_moves_mask()  )
+        policy = softmax(25 * Q_dict[hashable(board.board)] +  board.legal_moves_mask()  )
         if not return_dicts:
             return policy
         else:
@@ -135,7 +135,7 @@ class Worker():
 
             # concatenate result_step to result_dict                                        
             # save result_step as "ds_j.pkl"
-            with open(f"games/ds_{self.step}_{self.worker_id*num_games+(j-1)}.pkl", "wb") as outp:
+            with open(f"games/ds_{self.step+1}_{self.worker_id*num_games+(j-1)}.pkl", "wb") as outp:
                 pickle.dump(result_step, outp, pickle.HIGHEST_PROTOCOL)
 
 
@@ -172,18 +172,20 @@ def test():
     batch_size = 50
 
     num_workers = 16
-    games_per_step = 10000*num_workers
+    games_per_step = 100000*num_workers
 
     opt = torch.optim.Adam(model.parameters(), lr=1e-4)
     wandb.init(project="reinforcement")
 
     ray.init()
+
     '''
     torch.save(model.state_dict(), "model.pt")
     onnx_model = connect_model_onnx()
     onnx_model.load_state_dict(torch.load("model.pt"))
     torch_input = torch.randn((7,7),dtype=torch.float32)
     torch.onnx.export(onnx_model, torch_input,"onnx_model.onnx")'''
+
     for i in tqdm(range(num_steps)):
 
         
@@ -286,6 +288,7 @@ def train(model, Xs, Ps, Vs, opt, batch_size, epochs=1, scheduler = None):
             opt.step()
             if scheduler != None:
                 scheduler.step()
+        torch.save(model.state_dict(), f"model_{epoch}.pt")
     #rename last model.pt to old_model.pt
     os.rename("model.pt","old_model.pt")
     torch.save(model.state_dict(), "model.pt")

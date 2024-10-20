@@ -36,11 +36,11 @@ def calculate_policy(board, num_rollouts, model, return_dicts=False,mode = "N"):
 def update(Q, N, P, V, board, model, main_path=False):
     if hashable(board.board) not in Q:
         pred = model(board.board)
-        P[hashable(board.board)] = pred["P"]
+        P[hashable(board.board)] = pred[0]
         #P[hashable(board.board)] = softmax(np.random.randn(7))
         # print(type(pred["P"]))
         if board.winner is None:
-            V[hashable(board.board)] = pred["V"]
+            V[hashable(board.board)] = pred[1]
             #V[hashable(board.board)] = np.random.randn()
         else:
             V[hashable(board.board)] = -1
